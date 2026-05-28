@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env
+
+# ChromaDB persistent data
+backend/chroma_db/
+
+# Uploaded user content (transient)
+backend/uploads/
+
+# KB metadata (runtime state)
+backend/kb_metadata.json
+
+# Demo helper file
+demo_kb_id.txt
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Stray lockfile in backend (not a node project)
+backend/package-lock.json
