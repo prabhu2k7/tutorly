@@ -2,7 +2,14 @@
 
 A SaaS product (in development) that turns a course creator's YouTube videos and documents into an AI tutor their students can chat with.
 
-> The repo folder may be renamed at any time — this file lives at the project root and travels with it. Don't depend on the folder name `custom-rag` (or whatever it's named today) anywhere.
+| Where | URL |
+|---|---|
+| Local repo | `D:\dev\faq_rag\tutorly\` |
+| GitHub | https://github.com/prabhu2k7/tutorly |
+| Hugging Face Space | https://huggingface.co/spaces/pra2k1/tutorly |
+| Live URL | https://pra2k1-tutorly.hf.space |
+
+> The repo folder may be renamed at any time — this file lives at the project root and travels with it. Don't depend on the folder name anywhere.
 
 ## Product positioning
 

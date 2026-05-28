@@ -12,9 +12,9 @@ function FileList({ files, onDelete }) {
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
+    <div className="bg-white rounded-2xl shadow-md p-6 border border-violet-100">
       <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-        <FileText className="w-5 h-5" />
+        <FileText className="w-5 h-5 text-violet-600" />
         Uploaded Files ({files.length})
       </h2>
       

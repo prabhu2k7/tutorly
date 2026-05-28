@@ -12,7 +12,7 @@ function YoutubeImport({ onImport, importing }) {
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
+    <div className="bg-white rounded-2xl shadow-md p-6 border border-violet-100">
       <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
         <Youtube className="w-5 h-5 text-red-600" />
         Import from YouTube
@@ -27,7 +27,7 @@ function YoutubeImport({ onImport, importing }) {
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://www.youtube.com/watch?v=..."
           disabled={importing}
-          className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
         />
         <button
           type="submit"

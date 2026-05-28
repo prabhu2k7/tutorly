@@ -15,28 +15,29 @@ SYSTEM_PROMPT = (
 
 
 class RAGService:
+    """BYOK RAG service — each call carries the caller's own OpenAI key.
+
+    No client is cached server-side; one client per request keeps the key
+    scoped to that one API call and avoids any cross-user leakage.
+    """
+
     def __init__(self, config, vector_store: VectorStore):
         self.config = config
         self.vector_store = vector_store
-        self._client: Optional[OpenAI] = None
 
-    @property
-    def client(self) -> OpenAI:
-        if self._client is None:
-            if not self.config.OPENAI_API_KEY:
-                raise RuntimeError(
-                    "OPENAI_API_KEY is not set. Add it to backend/.env."
-                )
-            self._client = OpenAI(api_key=self.config.OPENAI_API_KEY)
-        return self._client
+    @staticmethod
+    def _client(api_key: str) -> OpenAI:
+        if not api_key:
+            raise RuntimeError("OpenAI API key required")
+        return OpenAI(api_key=api_key)
 
-    async def embed_texts(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for a list of texts (batched)."""
+    async def embed_texts(self, texts: List[str], api_key: str) -> List[List[float]]:
+        client = self._client(api_key)
         batch_size = 100
         all_embeddings: List[List[float]] = []
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
-            response = self.client.embeddings.create(
+            response = client.embeddings.create(
                 model=self.config.EMBEDDING_MODEL,
                 input=batch,
             )
@@ -50,12 +51,12 @@ class RAGService:
         filename: str,
         chunks: List[Dict],
         file_metadata: Dict,
+        api_key: str,
     ):
-        """Embed all chunks and store them in the KB."""
         if not chunks:
             return
         texts = [chunk["text"] for chunk in chunks]
-        embeddings = await self.embed_texts(texts)
+        embeddings = await self.embed_texts(texts, api_key=api_key)
         await self.vector_store.add_chunks(
             kb_id=kb_id,
             file_id=file_id,
@@ -69,9 +70,10 @@ class RAGService:
         self,
         kb_id: str,
         query: str,
+        api_key: str,
         history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict:
-        """Answer a question scoped to one KB."""
+        client = self._client(api_key)
         history = history or []
 
         files = self.vector_store.get_files(kb_id)
@@ -81,7 +83,7 @@ class RAGService:
                 "sources": [],
             }
 
-        query_embedding = (await self.embed_texts([query]))[0]
+        query_embedding = (await self.embed_texts([query], api_key=api_key))[0]
         relevant_chunks = await self.vector_store.search(
             kb_id=kb_id,
             query_embedding=query_embedding,
@@ -110,7 +112,7 @@ class RAGService:
             "content": f"Course materials:\n\n{context}\n\n---\n\nStudent question: {query}",
         })
 
-        response = self.client.chat.completions.create(
+        response = client.chat.completions.create(
             model=self.config.CHAT_MODEL,
             messages=messages,
             temperature=0.3,
@@ -123,7 +125,6 @@ class RAGService:
         return {"answer": answer, "sources": sources}
 
     def _build_sources(self, chunks: List[Dict]) -> List[Dict]:
-        """Turn retrieved chunks into student-facing source chips, deduped and capped."""
         seen = set()
         sources: List[Dict] = []
         for chunk in chunks:
@@ -132,7 +133,6 @@ class RAGService:
             youtube_video_id = md.get("youtube_video_id")
             start_time = md.get("start_time")
 
-            # Strip "[YouTube <id>].txt" suffix from displayed name
             display = re.sub(r"\s*\[YouTube\s+[\w-]+\]\.txt$", "", filename)
 
             if youtube_video_id and start_time is not None:

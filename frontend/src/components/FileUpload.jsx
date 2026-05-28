@@ -54,7 +54,7 @@ function FileUpload({ onUpload, loading }) {
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
+    <div className="bg-white rounded-2xl shadow-md p-6 border border-violet-100">
       <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
         <Upload className="w-5 h-5" />
         Upload Document
@@ -63,8 +63,8 @@ function FileUpload({ onUpload, loading }) {
       <div
         className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
           dragActive
-            ? 'border-indigo-500 bg-indigo-50'
-            : 'border-gray-300 hover:border-indigo-400'
+            ? 'border-violet-500 bg-violet-50'
+            : 'border-gray-300 hover:border-violet-400'
         }`}
         onDragEnter={handleDrag}
         onDragLeave={handleDrag}
@@ -88,7 +88,7 @@ function FileUpload({ onUpload, loading }) {
           <FileText className="w-12 h-12 text-gray-400 mb-4" />
           <p className="text-gray-600 mb-2">
             Drag and drop a file here, or{' '}
-            <span className="text-indigo-600 font-semibold">click to browse</span>
+            <span className="text-violet-600 font-semibold">click to browse</span>
           </p>
           <p className="text-sm text-gray-500">
             Supports PDF, DOCX, TXT (Max 25 MB)
@@ -98,7 +98,7 @@ function FileUpload({ onUpload, loading }) {
 
       {loading && (
         <div className="mt-4 text-center">
-          <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+          <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-violet-600"></div>
           <p className="text-sm text-gray-600 mt-2">Processing document...</p>
         </div>
       )}

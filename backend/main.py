@@ -1,6 +1,6 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -41,15 +41,39 @@ DEMO_VIDEO_URL = "https://www.youtube.com/watch?v=fNk_zzaMoSs"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Auto-seed the demo KB on startup if it doesn't have content yet."""
+    """Auto-seed the demo KB on startup if it doesn't have content yet.
+
+    BYOK mode means we have no end-user key, so the seed only runs when the
+    operator has provided one as OPENAI_API_KEY (env var or .env). On public
+    BYOK deployments this is intentionally absent — the demo KB stays empty
+    until a real user with their own key opens it.
+    """
     try:
         existing = vector_store.get_files(DEMO_KB_ID)
-        if not existing:
+        if not existing and config.OPENAI_API_KEY:
             await _seed_demo_kb()
+        elif not existing:
+            print("[seed] Skipping demo KB seed (no OPENAI_API_KEY set; this is normal for BYOK deployments).")
     except Exception as e:
         # Demo seeding is best-effort — never block startup.
         print(f"[warn] Demo KB seeding skipped: {e}")
     yield
+
+
+def _require_api_key(x_openai_key: Optional[str]) -> str:
+    """Pull the per-request OpenAI key from the X-OpenAI-Key header.
+
+    Falls back to the server-side OPENAI_API_KEY only if explicitly configured
+    (mainly for local dev). Public BYOK deployments leave that empty so the
+    user-supplied header is the only path.
+    """
+    key = (x_openai_key or config.OPENAI_API_KEY or "").strip()
+    if not key:
+        raise HTTPException(
+            status_code=401,
+            detail="OpenAI API key required. Click the key icon in the top-right and paste yours.",
+        )
+    return key
 
 
 app = FastAPI(title="Tutorly API", version="0.3.0", lifespan=lifespan)
@@ -140,6 +164,7 @@ async def _seed_demo_kb():
         filename=filename,
         chunks=result["chunks"],
         file_metadata=file_metadata,
+        api_key=config.OPENAI_API_KEY,
     )
     print(f"[seed] Demo KB seeded with '{title}'.")
 
@@ -187,7 +212,12 @@ async def rename_kb(kb_id: str, payload: RenameKBRequest):
 
 
 @app.post("/api/kb/{kb_id}/upload", response_model=UploadResponse)
-async def upload_file(kb_id: str, file: UploadFile = File(...)):
+async def upload_file(
+    kb_id: str,
+    file: UploadFile = File(...),
+    x_openai_key: Optional[str] = Header(None),
+):
+    api_key = _require_api_key(x_openai_key)
     file_content = await file.read()
     file_size_mb = len(file_content) / (1024 * 1024)
 
@@ -241,6 +271,7 @@ async def upload_file(kb_id: str, file: UploadFile = File(...)):
             filename=file.filename,
             chunks=result["chunks"],
             file_metadata=file_metadata,
+            api_key=api_key,
         )
 
         return UploadResponse(
@@ -260,7 +291,12 @@ async def upload_file(kb_id: str, file: UploadFile = File(...)):
 
 
 @app.post("/api/kb/{kb_id}/youtube", response_model=UploadResponse)
-async def import_youtube(kb_id: str, request: YouTubeImportRequest):
+async def import_youtube(
+    kb_id: str,
+    request: YouTubeImportRequest,
+    x_openai_key: Optional[str] = Header(None),
+):
+    api_key = _require_api_key(x_openai_key)
     video_id = extract_video_id(request.url)
     if not video_id:
         raise HTTPException(status_code=400, detail="Could not parse a YouTube video id from that URL.")
@@ -312,6 +348,7 @@ async def import_youtube(kb_id: str, request: YouTubeImportRequest):
         filename=filename,
         chunks=result["chunks"],
         file_metadata=file_metadata,
+        api_key=api_key,
     )
 
     return UploadResponse(
@@ -323,12 +360,20 @@ async def import_youtube(kb_id: str, request: YouTubeImportRequest):
 
 
 @app.post("/api/kb/{kb_id}/chat")
-async def chat(kb_id: str, request: ChatRequest):
+async def chat(
+    kb_id: str,
+    request: ChatRequest,
+    x_openai_key: Optional[str] = Header(None),
+):
     if not request.message or not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
+    api_key = _require_api_key(x_openai_key)
     try:
         response = await rag_service.chat(
-            kb_id=kb_id, query=request.message, history=request.history
+            kb_id=kb_id,
+            query=request.message,
+            history=request.history,
+            api_key=api_key,
         )
         return {"response": response["answer"], "sources": response.get("sources", [])}
     except RuntimeError as e:
@@ -355,9 +400,12 @@ async def get_stats(kb_id: str):
 
 @app.get("/api/health")
 async def health():
+    server_has_key = bool(config.OPENAI_API_KEY)
     return {
         "ok": True,
-        "openai_key_configured": bool(config.OPENAI_API_KEY),
+        # When false, every API call MUST carry an X-OpenAI-Key header.
+        "byok_required": not server_has_key,
+        "server_key_present": server_has_key,
         "chat_model": config.CHAT_MODEL,
         "embedding_model": config.EMBEDDING_MODEL,
         "demo_kb_id": DEMO_KB_ID,

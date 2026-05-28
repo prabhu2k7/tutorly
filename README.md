@@ -1,8 +1,8 @@
 ---
 title: Tutorly
 emoji: 🎓
-colorFrom: indigo
-colorTo: purple
+colorFrom: purple
+colorTo: yellow
 sdk: docker
 app_port: 7860
 pinned: false

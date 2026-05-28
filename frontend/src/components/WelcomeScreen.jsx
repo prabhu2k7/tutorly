@@ -12,11 +12,13 @@ function WelcomeScreen({ onCreate, creating }) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-blue-50 to-indigo-100 p-4">
-      <div className="bg-white rounded-2xl shadow-xl max-w-xl w-full p-8">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 via-fuchsia-50 to-amber-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl max-w-xl w-full p-8 border border-violet-100">
         <div className="flex items-center gap-2 mb-3">
-          <Sparkles className="w-6 h-6 text-indigo-600" />
-          <span className="text-sm font-semibold text-indigo-600 uppercase tracking-wide">
+          <div className="bg-gradient-to-br from-violet-500 to-fuchsia-500 p-1.5 rounded-lg">
+            <Sparkles className="w-5 h-5 text-white" />
+          </div>
+          <span className="text-sm font-semibold text-violet-600 uppercase tracking-wide">
             Tutorly
           </span>
         </div>
@@ -29,7 +31,7 @@ function WelcomeScreen({ onCreate, creating }) {
 
         <a
           href="/?kb=demo"
-          className="flex items-center justify-between gap-3 w-full p-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 transition-all mb-6 group"
+          className="flex items-center justify-between gap-3 w-full p-4 rounded-xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-amber-500 text-white hover:opacity-90 transition-all mb-6 group shadow-lg"
         >
           <div className="flex items-center gap-3">
             <div className="bg-white/20 p-2 rounded-lg">
@@ -37,7 +39,7 @@ function WelcomeScreen({ onCreate, creating }) {
             </div>
             <div className="text-left">
               <div className="font-semibold">Try the demo first</div>
-              <div className="text-sm text-indigo-100">
+              <div className="text-sm text-violet-100">
                 See it work with a 3Blue1Brown linear algebra video
               </div>
             </div>
@@ -64,7 +66,7 @@ function WelcomeScreen({ onCreate, creating }) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Linear Algebra 101"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
               disabled={creating}
               autoFocus
             />
