@@ -47,7 +47,46 @@ def fetch_video_title(video_id: str) -> str:
 
 
 def fetch_transcript_segments(video_id: str) -> List[Dict]:
-    """Return transcript as a list of {text, start, duration} segments."""
+    """Return transcript as a list of {text, start, duration} segments.
+
+    Two-stage strategy:
+      1. youtube-transcript-api (fast, lightweight) — works in most environments.
+      2. yt-dlp fallback (heavier, different endpoints) — sometimes succeeds
+         where (1) was IP-blocked by YouTube on cloud-host IPs.
+    """
+    primary_error: Optional[Exception] = None
+    try:
+        return _fetch_via_transcript_api(video_id)
+    except YouTubeImportError as e:
+        # Hard fails we don't retry on (no captions, deleted video, bad id).
+        msg = str(e).lower()
+        unrecoverable = (
+            "disabled" in msg
+            or "unavailable" in msg
+            or "invalid" in msg
+            or "empty" in msg
+        )
+        if unrecoverable:
+            raise
+        primary_error = e
+    except Exception as e:
+        primary_error = e
+
+    # Fallback: yt-dlp through YouTube's internal "innertube" API.
+    try:
+        return _fetch_via_ytdlp(video_id)
+    except YouTubeImportError:
+        raise
+    except Exception as e:
+        # Surface the more informative primary error if we have one.
+        detail = primary_error or e
+        raise YouTubeImportError(
+            f"Could not fetch transcript via primary or fallback path. "
+            f"This deployment's IP may be blocked by YouTube. ({detail})"
+        )
+
+
+def _fetch_via_transcript_api(video_id: str) -> List[Dict]:
     api = YouTubeTranscriptApi()
     try:
         try:
@@ -57,28 +96,17 @@ def fetch_transcript_segments(video_id: str) -> List[Dict]:
             first = next(iter(transcript_list))
             fetched = first.fetch()
     except TranscriptsDisabled:
-        raise YouTubeImportError(
-            "Captions are disabled for this video — try a different one."
-        )
+        raise YouTubeImportError("Captions are disabled for this video — try a different one.")
     except VideoUnavailable:
-        raise YouTubeImportError(
-            "This video is unavailable (private, region-blocked, or removed)."
-        )
+        raise YouTubeImportError("This video is unavailable (private, region-blocked, or removed).")
     except InvalidVideoId:
         raise YouTubeImportError("That doesn't look like a valid YouTube video id.")
     except YouTubeTranscriptApiException as e:
-        raise YouTubeImportError(f"Could not fetch transcript: {e}")
-    except Exception:
-        # Network / SSL / proxy / rate-limit failures from the hosting platform's
-        # IP range. YouTube occasionally drops TLS handshakes from shared hosts
-        # (Hugging Face Spaces is a known case). Surface as a clean 400 instead
-        # of leaking a 500.
-        raise YouTubeImportError(
-            "Could not reach YouTube from this server. This usually means the host "
-            "is being rate-limited by YouTube's TLS layer (common on shared hosting). "
-            "Workaround: open the video on YouTube -> click '...' (More) -> 'Show transcript' "
-            "-> copy the text -> save it as a .txt file -> use 'Upload Document' below."
-        )
+        # Could be IpBlocked, RequestBlocked, RateLimitExceeded — bubble up so the
+        # outer dispatcher can attempt the yt-dlp fallback.
+        raise YouTubeImportError(f"transcript-api: {e}")
+    except Exception as e:
+        raise YouTubeImportError(f"transcript-api network error: {e}")
 
     segments: List[Dict] = []
     for s in fetched:
@@ -86,13 +114,93 @@ def fetch_transcript_segments(video_id: str) -> List[Dict]:
         start = getattr(s, "start", None)
         duration = getattr(s, "duration", None)
         if text:
-            segments.append(
-                {
-                    "text": text,
-                    "start": float(start) if start is not None else 0.0,
-                    "duration": float(duration) if duration is not None else 0.0,
-                }
+            segments.append({
+                "text": text,
+                "start": float(start) if start is not None else 0.0,
+                "duration": float(duration) if duration is not None else 0.0,
+            })
+    if not segments:
+        raise YouTubeImportError("Transcript was empty.")
+    return segments
+
+
+def _fetch_via_ytdlp(video_id: str) -> List[Dict]:
+    """Use yt-dlp to grab the json3 caption URL and fetch it directly.
+
+    yt-dlp talks to YouTube's internal player API (innertube), which is a
+    different endpoint than what youtube-transcript-api scrapes. On some
+    cloud IPs this succeeds where the primary path fails.
+    """
+    import yt_dlp  # noqa: WPS433 — local import to avoid loading the heavy lib at startup
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    ydl_opts = {
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": ["en", "en-US", "en-GB"],
+        "quiet": True,
+        "no_warnings": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except yt_dlp.utils.DownloadError as e:
+        msg = str(e).lower()
+        if "private" in msg or "unavailable" in msg or "removed" in msg:
+            raise YouTubeImportError("This video is unavailable (private, region-blocked, or removed).")
+        if "blocked" in msg or "sign in" in msg or "captcha" in msg:
+            raise YouTubeImportError(
+                "yt-dlp was also blocked by YouTube on this host. Both paths failed."
             )
+        raise YouTubeImportError(f"yt-dlp: {e}")
+    except Exception as e:
+        raise YouTubeImportError(f"yt-dlp error: {e}")
+
+    subs = info.get("subtitles") or {}
+    auto = info.get("automatic_captions") or {}
+
+    # Prefer manual English subs; fall back to auto-generated, then any language.
+    chosen_formats = None
+    for src in (subs, auto):
+        for lang in ("en", "en-US", "en-GB"):
+            if lang in src:
+                chosen_formats = src[lang]
+                break
+        if chosen_formats:
+            break
+    if not chosen_formats:
+        # Any language at all
+        for src in (subs, auto):
+            for lang in src:
+                chosen_formats = src[lang]
+                break
+            if chosen_formats:
+                break
+
+    if not chosen_formats:
+        raise YouTubeImportError("No captions available for this video.")
+
+    # Look for json3 (structured timestamps); else srv3 / srv1 also have timestamps.
+    json3 = next((f for f in chosen_formats if f.get("ext") == "json3"), None)
+    if not json3:
+        raise YouTubeImportError("yt-dlp returned captions, but no json3 format.")
+
+    try:
+        with request.urlopen(json3["url"], timeout=15) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except Exception as e:
+        raise YouTubeImportError(f"yt-dlp fetched the caption URL but downloading it failed: {e}")
+
+    segments: List[Dict] = []
+    for ev in data.get("events", []) or []:
+        text = "".join(s.get("utf8", "") for s in (ev.get("segs") or [])).strip()
+        if not text:
+            continue
+        start = ev.get("tStartMs", 0) / 1000.0
+        duration = ev.get("dDurationMs", 0) / 1000.0
+        segments.append({"text": text, "start": float(start), "duration": float(duration)})
+
     if not segments:
         raise YouTubeImportError("Transcript was empty.")
     return segments
