@@ -30,7 +30,7 @@ function SourceChip({ source }) {
   )
 }
 
-function ChatInterface({ kbId, placeholder, greeting, onMissingKey }) {
+function ChatInterface({ kbId, placeholder, greeting, suggestedQuestions, onMissingKey }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -40,22 +40,21 @@ function ChatInterface({ kbId, placeholder, greeting, onMissingKey }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const handleSend = async () => {
-    if (!input.trim() || loading || !kbId) return
+  const sendMessage = async (text) => {
+    if (!text.trim() || loading || !kbId) return
 
-    const userMessage = { role: 'user', content: input, timestamp: new Date() }
+    const userMessage = { role: 'user', content: text, timestamp: new Date() }
     const history = messages
       .filter((m) => !m.isError)
       .map((m) => ({ role: m.role, content: m.content }))
 
     setMessages((prev) => [...prev, userMessage])
-    const currentInput = input
     setInput('')
     setLoading(true)
 
     try {
       const { data } = await apiClient.post(`/kb/${kbId}/chat`, {
-        message: currentInput,
+        message: text,
         history,
       })
       const botMessage = {
@@ -81,6 +80,8 @@ function ChatInterface({ kbId, placeholder, greeting, onMissingKey }) {
     }
   }
 
+  const handleSend = () => sendMessage(input)
+
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -99,12 +100,35 @@ function ChatInterface({ kbId, placeholder, greeting, onMissingKey }) {
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gray-500">
-            <div className="text-center max-w-sm">
-              <div className="inline-block bg-gradient-to-br from-violet-100 to-fuchsia-100 p-3 rounded-full mb-4">
-                <Bot className="w-8 h-8 text-violet-600" />
+          <div className="flex items-center justify-center h-full text-gray-500 py-6">
+            <div className="text-center max-w-md w-full">
+              <div className="inline-flex relative mb-4">
+                <div className="absolute inset-0 bg-gradient-to-br from-violet-400 via-fuchsia-400 to-amber-400 rounded-full blur-xl opacity-60 animate-pulse" />
+                <div className="relative bg-gradient-to-br from-violet-500 via-fuchsia-500 to-amber-500 p-4 rounded-full shadow-lg">
+                  <Bot className="w-10 h-10 text-white" />
+                </div>
               </div>
-              <p className="text-gray-700">{greeting || 'Ask a question to get started'}</p>
+              <p className="text-gray-700 mb-4">{greeting || 'Ask a question to get started'}</p>
+
+              {suggestedQuestions && suggestedQuestions.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-xs uppercase tracking-wide text-violet-600 font-semibold mb-2">
+                    Try one of these
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {suggestedQuestions.map((q, i) => (
+                      <button
+                        key={i}
+                        onClick={() => sendMessage(q)}
+                        disabled={loading}
+                        className="text-left px-4 py-2.5 bg-white hover:bg-gradient-to-r hover:from-violet-50 hover:to-fuchsia-50 border border-violet-200 hover:border-violet-400 rounded-xl text-sm text-gray-800 transition-all hover:shadow-md disabled:opacity-50"
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ) : (

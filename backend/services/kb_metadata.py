@@ -37,9 +37,15 @@ class KBMetadataStore:
             entry = self._data.get(kb_id)
             return dict(entry) if entry else None
 
-    def create(self, kb_id: str, name: str) -> Dict:
+    def create(self, kb_id: str, name: str, suggested_questions: Optional[list] = None) -> Dict:
         now = datetime.now().isoformat()
-        entry = {"kb_id": kb_id, "name": name, "created_at": now, "updated_at": now}
+        entry = {
+            "kb_id": kb_id,
+            "name": name,
+            "created_at": now,
+            "updated_at": now,
+            "suggested_questions": list(suggested_questions or []),
+        }
         with self._lock:
             self._data[kb_id] = entry
             self._save()
@@ -55,11 +61,25 @@ class KBMetadataStore:
             self._save()
             return dict(entry)
 
-    def ensure(self, kb_id: str, default_name: str) -> Dict:
+    def set_suggested_questions(self, kb_id: str, questions: list) -> Optional[Dict]:
+        with self._lock:
+            entry = self._data.get(kb_id)
+            if not entry:
+                return None
+            entry["suggested_questions"] = list(questions)
+            entry["updated_at"] = datetime.now().isoformat()
+            self._save()
+            return dict(entry)
+
+    def ensure(self, kb_id: str, default_name: str, suggested_questions: Optional[list] = None) -> Dict:
         """Get or create the KB metadata. Used for ids that exist in Chroma but were never registered."""
         with self._lock:
             entry = self._data.get(kb_id)
             if entry:
+                # Backfill suggested_questions if missing (older rows).
+                if suggested_questions and not entry.get("suggested_questions"):
+                    entry["suggested_questions"] = list(suggested_questions)
+                    self._save()
                 return dict(entry)
             now = datetime.now().isoformat()
             entry = {
@@ -67,6 +87,7 @@ class KBMetadataStore:
                 "name": default_name,
                 "created_at": now,
                 "updated_at": now,
+                "suggested_questions": list(suggested_questions or []),
             }
             self._data[kb_id] = entry
             self._save()

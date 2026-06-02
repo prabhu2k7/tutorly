@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import {
-  GraduationCap, Share2, Check, Pencil, Key, Info, AlertCircle,
+  GraduationCap, Share2, Check, Pencil, Key, Info, AlertCircle, RotateCcw,
 } from 'lucide-react'
 import FileUpload from './components/FileUpload'
 import YoutubeImport from './components/YoutubeImport'
@@ -26,9 +26,18 @@ function App() {
   return <CreatorView />
 }
 
-function TopBar({ hasKey, onOpenKey, onOpenAbout }) {
+function TopBar({ hasKey, onOpenKey, onOpenAbout, onNewCourse }) {
   return (
     <div className="absolute top-0 right-0 p-4 flex items-center gap-2 z-10">
+      {onNewCourse && (
+        <button
+          onClick={onNewCourse}
+          className="px-3 py-1.5 text-sm font-medium text-violet-900 bg-white/70 hover:bg-white border border-violet-200 rounded-lg flex items-center gap-1.5 backdrop-blur-sm shadow-sm transition-colors"
+          title="Start a new course"
+        >
+          <RotateCcw className="w-4 h-4" /> New course
+        </button>
+      )}
       <button
         onClick={onOpenAbout}
         className="px-3 py-1.5 text-sm font-medium text-violet-900 bg-white/70 hover:bg-white border border-violet-200 rounded-lg flex items-center gap-1.5 backdrop-blur-sm shadow-sm transition-colors"
@@ -147,6 +156,7 @@ function StudentView({ kbId }) {
           kbId={kbId}
           placeholder={`Ask a question about ${courseName}...`}
           greeting={`Hi! I'm the AI tutor for ${courseName}. Try asking me about the course material.`}
+          suggestedQuestions={kbInfo?.suggested_questions || []}
           onMissingKey={() => setShowApiKey(true)}
         />
       </div>
@@ -242,6 +252,44 @@ function CreatorView() {
     } finally {
       setCreating(false)
     }
+  }
+
+  const handleCreateFromYoutube = async (url) => {
+    setCreating(true)
+    try {
+      const { data } = await apiClient.post('/kb_from_youtube', { url })
+      localStorage.setItem(KB_STORAGE_KEY, data.kb_id)
+      setKbId(data.kb_id)
+      setKbInfo(data)
+      setNeedsWelcome(false)
+    } catch (err) {
+      // Combined errors may carry the kb_id (course created, import failed).
+      const detail = err.response?.data?.detail
+      if (detail && typeof detail === 'object' && detail.kb_id) {
+        localStorage.setItem(KB_STORAGE_KEY, detail.kb_id)
+        setKbId(detail.kb_id)
+        setNeedsWelcome(false)
+        alert(`Course created, but the video import failed:\n\n${detail.message}\n\nTry again from the dashboard, or upload a .txt transcript instead.`)
+        return
+      }
+      if (err.response?.status === 401) {
+        setShowApiKey(true)
+        return
+      }
+      alert(detail || err.message || 'Could not import that video')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const handleNewCourse = () => {
+    if (!confirm('Start a new course? Your current course stays put — students with the share link can still use it.')) return
+    localStorage.removeItem(KB_STORAGE_KEY)
+    setKbId(null)
+    setKbInfo(null)
+    setFiles([])
+    setStats(null)
+    setNeedsWelcome(true)
   }
 
   const handleSaveName = async () => {
@@ -365,7 +413,13 @@ function CreatorView() {
   if (needsWelcome) {
     return (
       <>
-        <WelcomeScreen onCreate={handleCreateCourse} creating={creating} />
+        <WelcomeScreen
+          onCreateByName={handleCreateCourse}
+          onCreateFromYoutube={handleCreateFromYoutube}
+          creating={creating}
+          hasKey={hasKey}
+          onRequestKey={() => setShowApiKey(true)}
+        />
         <ApiKeyModal
           isOpen={showApiKey}
           onClose={() => setShowApiKey(false)}
@@ -383,6 +437,7 @@ function CreatorView() {
         hasKey={hasKey}
         onOpenKey={() => setShowApiKey(true)}
         onOpenAbout={() => setShowAbout(true)}
+        onNewCourse={handleNewCourse}
       />
 
       <div className="container mx-auto px-4 pt-16 pb-8">
@@ -484,6 +539,7 @@ function CreatorView() {
               kbId={kbId}
               placeholder="Preview your tutor — ask a question..."
               greeting={`Preview mode. This is what your students will see when they open ${courseName}.`}
+              suggestedQuestions={kbInfo?.suggested_questions || []}
               onMissingKey={() => setShowApiKey(true)}
             />
           </div>

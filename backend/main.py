@@ -38,6 +38,13 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 DEMO_KB_ID = "demo"
 DEMO_COURSE_NAME = "Linear Algebra — Demo"
 DEMO_VIDEO_URL = "https://www.youtube.com/watch?v=fNk_zzaMoSs"
+DEMO_SUGGESTED_QUESTIONS = [
+    "What is a vector?",
+    "What's the difference between the physics and computer-science views of a vector?",
+    "What does it mean for a vector to be in coordinate space?",
+    "Why does the order of numbers in a vector matter?",
+    "What's the mathematician's view of vectors?",
+]
 
 
 DEMO_SEED_PATH = Path("demo_seed.json")
@@ -56,7 +63,7 @@ async def lifespan(app: FastAPI):
          content stays empty. Asking the bot returns a friendly empty-state.
     """
     try:
-        kb_metadata.ensure(DEMO_KB_ID, DEMO_COURSE_NAME)
+        kb_metadata.ensure(DEMO_KB_ID, DEMO_COURSE_NAME, suggested_questions=DEMO_SUGGESTED_QUESTIONS)
     except Exception as e:
         print(f"[warn] Could not ensure demo KB metadata: {e}")
 
@@ -131,10 +138,16 @@ class KBInfo(BaseModel):
     name: str
     created_at: str
     updated_at: str
+    suggested_questions: List[str] = []
 
 
 class RenameKBRequest(BaseModel):
     name: str
+
+
+class YouTubeKBRequest(BaseModel):
+    url: str
+    name: Optional[str] = None  # falls back to the video title
 
 
 class UploadResponse(BaseModel):
@@ -173,7 +186,7 @@ class YouTubeImportRequest(BaseModel):
 
 async def _seed_demo_kb():
     print(f"[seed] Seeding demo KB '{DEMO_KB_ID}' with {DEMO_VIDEO_URL} ...")
-    kb_metadata.ensure(DEMO_KB_ID, DEMO_COURSE_NAME)
+    kb_metadata.ensure(DEMO_KB_ID, DEMO_COURSE_NAME, suggested_questions=DEMO_SUGGESTED_QUESTIONS)
     video_id = extract_video_id(DEMO_VIDEO_URL)
     if not video_id:
         print("[warn] Demo video URL could not be parsed; skipping seed.")
@@ -241,6 +254,67 @@ async def rename_kb(kb_id: str, payload: RenameKBRequest):
             entry = kb_metadata.ensure(kb_id, name)
         else:
             raise HTTPException(status_code=404, detail="Knowledge base not found")
+    return KBInfo(**entry)
+
+
+@app.post("/api/kb_from_youtube", response_model=KBInfo)
+async def create_kb_from_youtube(
+    payload: YouTubeKBRequest,
+    x_openai_key: Optional[str] = Header(None),
+):
+    """Create a brand-new KB from a YouTube URL in one shot.
+
+    - Uses YouTube oEmbed to get the video title (no API key, no rate-limit).
+    - Creates the KB with that title as the course name.
+    - Then attempts the transcript import. If YouTube blocks the request from
+      this host, the KB still exists (the user can rename and upload a .txt
+      instead) and we return a clear error.
+    """
+    api_key = _require_api_key(x_openai_key)
+
+    video_id = extract_video_id(payload.url)
+    if not video_id:
+        raise HTTPException(status_code=400, detail="Could not parse a YouTube video id from that URL.")
+
+    title = fetch_video_title(video_id)
+    course_name = (payload.name or title or "Imported video").strip() or "Imported video"
+
+    kb_id = str(uuid.uuid4())
+    entry = kb_metadata.create(kb_id, course_name)
+
+    try:
+        segments = fetch_transcript_segments(video_id)
+    except YouTubeImportError as e:
+        # KB exists but empty — surface the friendly error so the UI can show it.
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "kb_id": kb_id,
+                "kb_created": True,
+                "message": str(e),
+            },
+        )
+
+    filename = f"{title} [YouTube {video_id}].txt"
+    result = document_processor.process_timestamped_segments(segments)
+    file_metadata = {
+        "size_mb": len(result["text"].encode("utf-8")) / (1024 * 1024),
+        "pages": result["pages"],
+        "chars": result["chars"],
+        "upload_date": datetime.now().isoformat(),
+        "filename": filename,
+        "source": "youtube",
+        "youtube_video_id": video_id,
+    }
+    await rag_service.ingest_file(
+        kb_id=kb_id,
+        file_id=str(uuid.uuid4()),
+        filename=filename,
+        chunks=result["chunks"],
+        file_metadata=file_metadata,
+        api_key=api_key,
+    )
+
     return KBInfo(**entry)
 
 

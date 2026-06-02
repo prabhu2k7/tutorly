@@ -1,39 +1,111 @@
-import { useState } from 'react'
-import { Sparkles, Play, ArrowRight, AlertCircle } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Sparkles, Play, ArrowRight, Youtube, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react'
 
 const URL_PATTERN = /^https?:\/\/|youtube\.com|youtu\.be/i
 
-function WelcomeScreen({ onCreate, creating }) {
-  const [name, setName] = useState('')
-  const [warn, setWarn] = useState('')
+const IMPORT_PHASES = [
+  { at: 0, label: 'Reading video info from YouTube', sub: 'Looking up the video title via YouTube oEmbed.' },
+  { at: 3, label: 'Pulling the transcript', sub: 'Fetching captions from YouTube — this is usually the bottleneck.' },
+  { at: 8, label: 'Embedding text into your tutor’s brain', sub: 'Sending chunks to OpenAI for vector embeddings.' },
+  { at: 20, label: 'Almost there', sub: 'Storing chunks in the vector database and wiring up your share link.' },
+]
 
-  const looksLikeUrl = URL_PATTERN.test(name.trim())
+function ImportProgress({ courseName }) {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    const start = performance.now()
+    const id = setInterval(() => setElapsed((performance.now() - start) / 1000), 250)
+    return () => clearInterval(id)
+  }, [])
+  let phaseIdx = 0
+  for (let i = 0; i < IMPORT_PHASES.length; i++) if (elapsed >= IMPORT_PHASES[i].at) phaseIdx = i
+  const phase = IMPORT_PHASES[phaseIdx]
+
+  return (
+    <div className="text-left">
+      <div className="flex items-center gap-3 mb-5">
+        <div className="bg-gradient-to-br from-violet-500 via-fuchsia-500 to-amber-500 p-2.5 rounded-xl shadow-lg">
+          <Loader2 className="w-5 h-5 text-white animate-spin" />
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wide text-violet-600 font-semibold">
+            Importing — {Math.round(elapsed)}s elapsed
+          </div>
+          <div className="text-lg font-bold text-gray-900">{phase.label}…</div>
+        </div>
+      </div>
+      <p className="text-sm text-gray-600 mb-4">{phase.sub}</p>
+      <ol className="space-y-2.5">
+        {IMPORT_PHASES.map((p, i) => {
+          const done = i < phaseIdx
+          const active = i === phaseIdx
+          return (
+            <li key={i} className="flex items-start gap-2.5 text-sm">
+              <span className={
+                'flex-shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center ' +
+                (done ? 'bg-emerald-500 text-white'
+                  : active ? 'bg-violet-100 text-violet-700'
+                  : 'bg-gray-100 text-gray-400')
+              }>
+                {done ? <CheckCircle2 className="w-4 h-4" />
+                  : active ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <span className="text-[10px] font-semibold">{i + 1}</span>}
+              </span>
+              <span className={done ? 'text-gray-500 line-through decoration-emerald-300' : active ? 'text-gray-900 font-medium' : 'text-gray-400'}>
+                {p.label}
+              </span>
+            </li>
+          )
+        })}
+      </ol>
+      {courseName && (
+        <p className="mt-5 text-xs text-gray-500">
+          Course: <span className="font-mono">{courseName}</span>
+        </p>
+      )}
+      <p className="mt-4 text-xs text-gray-500">
+        Typical time: <span className="font-semibold">10–25 seconds</span>. Long videos can take a bit more.
+      </p>
+    </div>
+  )
+}
+
+function WelcomeScreen({ onCreateByName, onCreateFromYoutube, creating, hasKey, onRequestKey }) {
+  const [value, setValue] = useState('')
+  const trimmed = value.trim()
+  const isUrl = URL_PATTERN.test(trimmed)
 
   const submit = (e) => {
     e.preventDefault()
-    const trimmed = name.trim()
     if (!trimmed || creating) return
-    if (URL_PATTERN.test(trimmed)) {
-      setWarn(
-        "That looks like a video URL. Give your course a name first (e.g. \"Linear Algebra 101\"). You'll be able to paste video URLs on the next screen."
-      )
-      return
+    if (isUrl) {
+      if (!hasKey) {
+        onRequestKey()
+        return
+      }
+      onCreateFromYoutube(trimmed)
+    } else {
+      onCreateByName(trimmed)
     }
-    onCreate(trimmed)
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 via-fuchsia-50 to-amber-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl max-w-xl w-full p-8 border border-violet-100">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-100 via-fuchsia-100 to-amber-100 p-4 relative overflow-hidden">
+      {/* Decorative blobs */}
+      <div className="absolute -top-32 -left-24 w-96 h-96 bg-violet-300 rounded-full mix-blend-multiply filter blur-3xl opacity-40" />
+      <div className="absolute -bottom-32 -right-24 w-96 h-96 bg-amber-300 rounded-full mix-blend-multiply filter blur-3xl opacity-40" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-fuchsia-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30" />
+
+      <div className="relative bg-white/90 backdrop-blur-xl rounded-3xl shadow-2xl max-w-xl w-full p-8 border border-white">
         <div className="flex items-center gap-2 mb-3">
-          <div className="bg-gradient-to-br from-violet-500 to-fuchsia-500 p-1.5 rounded-lg">
+          <div className="bg-gradient-to-br from-violet-500 via-fuchsia-500 to-amber-500 p-1.5 rounded-lg">
             <Sparkles className="w-5 h-5 text-white" />
           </div>
-          <span className="text-sm font-semibold text-violet-600 uppercase tracking-wide">
+          <span className="text-sm font-semibold bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent uppercase tracking-wider">
             Tutorly
           </span>
         </div>
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2 leading-tight">
           Turn your YouTube videos into a 24/7 AI tutor for your students.
         </h1>
         <p className="text-gray-600 mb-6">
@@ -42,10 +114,10 @@ function WelcomeScreen({ onCreate, creating }) {
 
         <a
           href="/?kb=demo"
-          className="flex items-center justify-between gap-3 w-full p-4 rounded-xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-amber-500 text-white hover:opacity-90 transition-all mb-6 group shadow-lg"
+          className="flex items-center justify-between gap-3 w-full p-4 rounded-xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-amber-500 text-white hover:opacity-95 transition-all mb-6 group shadow-lg hover:shadow-xl"
         >
           <div className="flex items-center gap-3">
-            <div className="bg-white/20 p-2 rounded-lg">
+            <div className="bg-white/25 p-2 rounded-lg">
               <Play className="w-5 h-5 fill-current" />
             </div>
             <div className="text-left">
@@ -67,45 +139,65 @@ function WelcomeScreen({ onCreate, creating }) {
           </div>
         </div>
 
-        <form onSubmit={submit} className="space-y-3">
-          <label className="block">
-            <span className="block text-sm font-medium text-gray-700 mb-1">
-              What&apos;s your course called?
-            </span>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => { setName(e.target.value); if (warn) setWarn('') }}
-              placeholder="e.g. Linear Algebra 101"
+        {creating && isUrl ? (
+          <ImportProgress courseName={trimmed} />
+        ) : (
+          <form onSubmit={submit} className="space-y-3">
+            <label className="block">
+              <span className="block text-sm font-medium text-gray-700 mb-1">
+                Course name <span className="text-gray-400 font-normal">or paste a YouTube URL</span>
+              </span>
+              <input
+                type="text"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder="Linear Algebra 101 — or https://youtube.com/watch?v=..."
+                className={
+                  'w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-colors ' +
+                  (isUrl
+                    ? 'border-red-300 focus:ring-red-500 bg-red-50/40'
+                    : 'border-gray-300 focus:ring-violet-500')
+                }
+                disabled={creating}
+                autoFocus
+              />
+              {isUrl && (
+                <p className="mt-2 text-xs text-red-700 flex items-center gap-1.5">
+                  <Youtube className="w-3.5 h-3.5" />
+                  Looks like a YouTube URL — we&apos;ll use the video&apos;s title as the course name and import it.
+                </p>
+              )}
+              {isUrl && !hasKey && (
+                <p className="mt-1 text-xs text-amber-700 flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  You&apos;ll need to set your OpenAI API key first.
+                </p>
+              )}
+            </label>
+            <button
+              type="submit"
+              disabled={creating || !trimmed}
               className={
-                'w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 ' +
-                (looksLikeUrl ? 'border-amber-400 focus:ring-amber-500' : 'border-gray-300 focus:ring-violet-500')
+                'w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed font-semibold transition-all shadow-md hover:shadow-lg ' +
+                (isUrl
+                  ? 'bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white'
+                  : 'bg-gray-900 hover:bg-gray-800 text-white')
               }
-              disabled={creating}
-              autoFocus
-            />
-            {looksLikeUrl && !warn && (
-              <p className="mt-2 text-xs text-amber-700 flex items-center gap-1">
-                <AlertCircle className="w-3 h-3" />
-                That looks like a video URL — give your course a name here, paste URLs on the next screen.
-              </p>
-            )}
-            {warn && (
-              <p className="mt-2 text-sm text-amber-700 flex items-start gap-1">
-                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <span>{warn}</span>
-              </p>
-            )}
-          </label>
-          <button
-            type="submit"
-            disabled={creating || !name.trim()}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed font-semibold transition-colors"
-          >
-            {creating ? 'Creating…' : 'Create my course tutor'}
-            {!creating && <ArrowRight className="w-4 h-4" />}
-          </button>
-        </form>
+            >
+              {creating
+                ? 'Creating…'
+                : (isUrl ? (
+                    <>
+                      <Youtube className="w-4 h-4" />
+                      Import this video & create course
+                    </>
+                  ) : (
+                    <>Create my course tutor <ArrowRight className="w-4 h-4" /></>
+                  ))
+              }
+            </button>
+          </form>
+        )}
       </div>
     </div>
   )
