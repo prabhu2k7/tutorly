@@ -1,13 +1,24 @@
 import { useState } from 'react'
-import { Sparkles, Play, ArrowRight } from 'lucide-react'
+import { Sparkles, Play, ArrowRight, AlertCircle } from 'lucide-react'
+
+const URL_PATTERN = /^https?:\/\/|youtube\.com|youtu\.be/i
 
 function WelcomeScreen({ onCreate, creating }) {
   const [name, setName] = useState('')
+  const [warn, setWarn] = useState('')
+
+  const looksLikeUrl = URL_PATTERN.test(name.trim())
 
   const submit = (e) => {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed || creating) return
+    if (URL_PATTERN.test(trimmed)) {
+      setWarn(
+        "That looks like a video URL. Give your course a name first (e.g. \"Linear Algebra 101\"). You'll be able to paste video URLs on the next screen."
+      )
+      return
+    }
     onCreate(trimmed)
   }
 
@@ -64,12 +75,27 @@ function WelcomeScreen({ onCreate, creating }) {
             <input
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => { setName(e.target.value); if (warn) setWarn('') }}
               placeholder="e.g. Linear Algebra 101"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+              className={
+                'w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 ' +
+                (looksLikeUrl ? 'border-amber-400 focus:ring-amber-500' : 'border-gray-300 focus:ring-violet-500')
+              }
               disabled={creating}
               autoFocus
             />
+            {looksLikeUrl && !warn && (
+              <p className="mt-2 text-xs text-amber-700 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                That looks like a video URL — give your course a name here, paste URLs on the next screen.
+              </p>
+            )}
+            {warn && (
+              <p className="mt-2 text-sm text-amber-700 flex items-start gap-1">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>{warn}</span>
+              </p>
+            )}
           </label>
           <button
             type="submit"

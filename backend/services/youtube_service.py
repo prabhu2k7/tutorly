@@ -68,6 +68,17 @@ def fetch_transcript_segments(video_id: str) -> List[Dict]:
         raise YouTubeImportError("That doesn't look like a valid YouTube video id.")
     except YouTubeTranscriptApiException as e:
         raise YouTubeImportError(f"Could not fetch transcript: {e}")
+    except Exception:
+        # Network / SSL / proxy / rate-limit failures from the hosting platform's
+        # IP range. YouTube occasionally drops TLS handshakes from shared hosts
+        # (Hugging Face Spaces is a known case). Surface as a clean 400 instead
+        # of leaking a 500.
+        raise YouTubeImportError(
+            "Could not reach YouTube from this server. This usually means the host "
+            "is being rate-limited by YouTube's TLS layer (common on shared hosting). "
+            "Workaround: open the video on YouTube -> click '...' (More) -> 'Show transcript' "
+            "-> copy the text -> save it as a .txt file -> use 'Upload Document' below."
+        )
 
     segments: List[Dict] = []
     for s in fetched:
