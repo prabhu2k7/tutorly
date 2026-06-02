@@ -1,74 +1,8 @@
-import { useEffect, useState } from 'react'
-import { Sparkles, Play, ArrowRight, Youtube, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react'
+import { useState } from 'react'
+import { Sparkles, Play, ArrowRight, Youtube, AlertCircle } from 'lucide-react'
+import ImportProgress from './ImportProgress'
 
 const URL_PATTERN = /^https?:\/\/|youtube\.com|youtu\.be/i
-
-const IMPORT_PHASES = [
-  { at: 0, label: 'Reading video info from YouTube', sub: 'Looking up the video title via YouTube oEmbed.' },
-  { at: 3, label: 'Pulling the transcript', sub: 'Fetching captions from YouTube — this is usually the bottleneck.' },
-  { at: 8, label: 'Embedding text into your tutor’s brain', sub: 'Sending chunks to OpenAI for vector embeddings.' },
-  { at: 20, label: 'Almost there', sub: 'Storing chunks in the vector database and wiring up your share link.' },
-]
-
-function ImportProgress({ courseName }) {
-  const [elapsed, setElapsed] = useState(0)
-  useEffect(() => {
-    const start = performance.now()
-    const id = setInterval(() => setElapsed((performance.now() - start) / 1000), 250)
-    return () => clearInterval(id)
-  }, [])
-  let phaseIdx = 0
-  for (let i = 0; i < IMPORT_PHASES.length; i++) if (elapsed >= IMPORT_PHASES[i].at) phaseIdx = i
-  const phase = IMPORT_PHASES[phaseIdx]
-
-  return (
-    <div className="text-left">
-      <div className="flex items-center gap-3 mb-5">
-        <div className="bg-gradient-to-br from-violet-500 via-fuchsia-500 to-amber-500 p-2.5 rounded-xl shadow-lg">
-          <Loader2 className="w-5 h-5 text-white animate-spin" />
-        </div>
-        <div>
-          <div className="text-xs uppercase tracking-wide text-violet-600 font-semibold">
-            Importing — {Math.round(elapsed)}s elapsed
-          </div>
-          <div className="text-lg font-bold text-gray-900">{phase.label}…</div>
-        </div>
-      </div>
-      <p className="text-sm text-gray-600 mb-4">{phase.sub}</p>
-      <ol className="space-y-2.5">
-        {IMPORT_PHASES.map((p, i) => {
-          const done = i < phaseIdx
-          const active = i === phaseIdx
-          return (
-            <li key={i} className="flex items-start gap-2.5 text-sm">
-              <span className={
-                'flex-shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center ' +
-                (done ? 'bg-emerald-500 text-white'
-                  : active ? 'bg-violet-100 text-violet-700'
-                  : 'bg-gray-100 text-gray-400')
-              }>
-                {done ? <CheckCircle2 className="w-4 h-4" />
-                  : active ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : <span className="text-[10px] font-semibold">{i + 1}</span>}
-              </span>
-              <span className={done ? 'text-gray-500 line-through decoration-emerald-300' : active ? 'text-gray-900 font-medium' : 'text-gray-400'}>
-                {p.label}
-              </span>
-            </li>
-          )
-        })}
-      </ol>
-      {courseName && (
-        <p className="mt-5 text-xs text-gray-500">
-          Course: <span className="font-mono">{courseName}</span>
-        </p>
-      )}
-      <p className="mt-4 text-xs text-gray-500">
-        Typical time: <span className="font-semibold">10–25 seconds</span>. Long videos can take a bit more.
-      </p>
-    </div>
-  )
-}
 
 function WelcomeScreen({ onCreateByName, onCreateFromYoutube, creating, hasKey, onRequestKey }) {
   const [value, setValue] = useState('')
@@ -140,7 +74,7 @@ function WelcomeScreen({ onCreateByName, onCreateFromYoutube, creating, hasKey, 
         </div>
 
         {creating && isUrl ? (
-          <ImportProgress courseName={trimmed} />
+          <ImportProgress subject={`URL: ${trimmed}`} compact />
         ) : (
           <form onSubmit={submit} className="space-y-3">
             <label className="block">

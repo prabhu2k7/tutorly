@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import {
-  GraduationCap, Share2, Check, Pencil, Key, Info, AlertCircle, RotateCcw,
+  GraduationCap, Share2, Check, Pencil, Key, Info, AlertCircle, RotateCcw, X,
 } from 'lucide-react'
 import FileUpload from './components/FileUpload'
 import YoutubeImport from './components/YoutubeImport'
@@ -55,6 +55,26 @@ function TopBar({ hasKey, onOpenKey, onOpenAbout, onNewCourse }) {
       >
         <Key className="w-4 h-4" />
         {hasKey ? 'API key' : 'Set API key'}
+      </button>
+    </div>
+  )
+}
+
+function ImportErrorBanner({ message, onDismiss }) {
+  if (!message) return null
+  return (
+    <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4 flex items-start gap-3">
+      <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-red-900 mb-1">Last import didn&apos;t complete</p>
+        <p className="text-sm text-red-800 whitespace-pre-wrap">{message}</p>
+        <p className="text-xs text-red-700 mt-2">
+          <strong>Tip:</strong> on the live demo, YouTube blocks our hosting IP. Use{' '}
+          <span className="font-semibold">Upload Document</span> with a <code className="bg-red-100 px-1 rounded">.txt</code> transcript instead, or run Tutorly locally.
+        </p>
+      </div>
+      <button onClick={onDismiss} className="text-red-400 hover:text-red-600 flex-shrink-0" title="Dismiss">
+        <X className="w-4 h-4" />
       </button>
     </div>
   )
@@ -191,6 +211,7 @@ function CreatorView() {
   const [showApiKey, setShowApiKey] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
   const [hasKey, setHasKey] = useState(Boolean(getStoredKey()))
+  const [importError, setImportError] = useState('')
   const editInputRef = useRef(null)
 
   useEffect(() => {
@@ -256,6 +277,7 @@ function CreatorView() {
 
   const handleCreateFromYoutube = async (url) => {
     setCreating(true)
+    setImportError('')
     try {
       const { data } = await apiClient.post('/kb_from_youtube', { url })
       localStorage.setItem(KB_STORAGE_KEY, data.kb_id)
@@ -269,14 +291,14 @@ function CreatorView() {
         localStorage.setItem(KB_STORAGE_KEY, detail.kb_id)
         setKbId(detail.kb_id)
         setNeedsWelcome(false)
-        alert(`Course created, but the video import failed:\n\n${detail.message}\n\nTry again from the dashboard, or upload a .txt transcript instead.`)
+        setImportError(detail.message || 'YouTube import failed.')
         return
       }
       if (err.response?.status === 401) {
         setShowApiKey(true)
         return
       }
-      alert(detail || err.message || 'Could not import that video')
+      setImportError(typeof detail === 'string' ? detail : (err.message || 'Could not import that video'))
     } finally {
       setCreating(false)
     }
@@ -358,6 +380,7 @@ function CreatorView() {
   const handleYoutubeImport = async (url) => {
     if (!requireKey()) return false
     setImportingYoutube(true)
+    setImportError('')
     try {
       const { data } = await apiClient.post(`/kb/${kbId}/youtube`, { url })
       await fetchFiles()
@@ -367,7 +390,8 @@ function CreatorView() {
       return true
     } catch (error) {
       if (error.response?.status === 401) setShowApiKey(true)
-      alert(error.response?.data?.detail || error.message || 'Could not import this video')
+      const detail = error.response?.data?.detail
+      setImportError(typeof detail === 'string' ? detail : (error.message || 'Could not import this video'))
       return false
     } finally {
       setImportingYoutube(false)
@@ -527,6 +551,8 @@ function CreatorView() {
             </div>
           )}
         </div>
+
+        <ImportErrorBanner message={importError} onDismiss={() => setImportError('')} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1 space-y-6">
