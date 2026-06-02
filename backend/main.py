@@ -1,3 +1,4 @@
+import json
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Header
@@ -39,35 +40,67 @@ DEMO_COURSE_NAME = "Linear Algebra — Demo"
 DEMO_VIDEO_URL = "https://www.youtube.com/watch?v=fNk_zzaMoSs"
 
 
+DEMO_SEED_PATH = Path("demo_seed.json")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Auto-seed the demo KB on startup if it doesn't have content yet.
+    """Ensure the demo KB is alive on startup.
 
-    BYOK mode means we have no end-user key, so the seed only runs when the
-    operator has provided one as OPENAI_API_KEY (env var or .env). On public
-    BYOK deployments this is intentionally absent — the demo KB stays empty
-    until a real user with their own key opens it.
+    Three paths, in priority order:
+      1. demo_seed.json present (shipped in the image) -> load chunks + embeddings
+         directly into Chroma. Zero OpenAI cost, works on a public BYOK deploy.
+      2. OPENAI_API_KEY set on the server -> fetch the YouTube transcript + embed
+         it (one-off local-dev path; never the public-deploy path).
+      3. Neither -> metadata still exists (so the share link doesn't 404), but
+         content stays empty. Asking the bot returns a friendly empty-state.
     """
     try:
+        kb_metadata.ensure(DEMO_KB_ID, DEMO_COURSE_NAME)
+    except Exception as e:
+        print(f"[warn] Could not ensure demo KB metadata: {e}")
+
+    try:
         existing = vector_store.get_files(DEMO_KB_ID)
-        if not existing and config.OPENAI_API_KEY:
+        if not existing and DEMO_SEED_PATH.exists():
+            _seed_demo_kb_from_file(DEMO_SEED_PATH)
+        elif not existing and config.OPENAI_API_KEY:
             await _seed_demo_kb()
         elif not existing:
-            print("[seed] Skipping demo KB seed (no OPENAI_API_KEY set; this is normal for BYOK deployments).")
+            print("[seed] Demo KB metadata only; no demo_seed.json and no OPENAI_API_KEY.")
     except Exception as e:
         # Demo seeding is best-effort — never block startup.
         print(f"[warn] Demo KB seeding skipped: {e}")
     yield
 
 
-def _require_api_key(x_openai_key: Optional[str]) -> str:
-    """Pull the per-request OpenAI key from the X-OpenAI-Key header.
+def _seed_demo_kb_from_file(seed_path: Path):
+    """Hydrate the demo KB from a pre-baked JSON file. No OpenAI calls."""
+    with open(seed_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    chunks = data.get("chunks") or []
+    if not chunks:
+        print(f"[seed] {seed_path.name} contained no chunks; skipping.")
+        return
+    kb_metadata.ensure(data.get("kb_id", DEMO_KB_ID), data.get("name") or DEMO_COURSE_NAME)
+    vector_store.collection.add(
+        ids=[c["id"] for c in chunks],
+        documents=[c["text"] for c in chunks],
+        metadatas=[c["metadata"] for c in chunks],
+        embeddings=[c["embedding"] for c in chunks],
+    )
+    print(f"[seed] Demo KB hydrated from {seed_path.name} ({len(chunks)} chunks).")
 
-    Falls back to the server-side OPENAI_API_KEY only if explicitly configured
-    (mainly for local dev). Public BYOK deployments leave that empty so the
-    user-supplied header is the only path.
+
+def _require_api_key(x_openai_key: Optional[str]) -> str:
+    """Strict BYOK: the OpenAI key MUST arrive in the X-OpenAI-Key header.
+
+    No fallback to a server-side key — that would let anyone with the public
+    URL burn the operator's wallet. The server-side OPENAI_API_KEY (if set)
+    is reserved for one thing: a one-off local demo seed when no pre-baked
+    seed JSON is shipped.
     """
-    key = (x_openai_key or config.OPENAI_API_KEY or "").strip()
+    key = (x_openai_key or "").strip()
     if not key:
         raise HTTPException(
             status_code=401,
