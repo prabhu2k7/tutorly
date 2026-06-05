@@ -505,7 +505,7 @@ async def get_stats(kb_id: str):
     return StatsResponse(**vector_store.get_stats(kb_id))
 
 
-@app.get("/api/health")
+@app.api_route("/api/health", methods=["GET", "HEAD"])
 async def health():
     server_has_key = bool(config.OPENAI_API_KEY)
     return {
